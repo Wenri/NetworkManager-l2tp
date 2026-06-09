@@ -149,7 +149,10 @@ nm_ip_up(void *data, int arg)
     guint32         pppd_made_up_address = htonl (0x0a404040 + ifunit);
     ipcp_options    opts                 = ipcp_gotoptions[0];
     ipcp_options    peer_opts            = ipcp_hisoptions[0];
+    ipcp_options    want_opts            = ipcp_wantoptions[0];
     GVariantBuilder builder;
+    const guint32   ext_gw_address       = want_opts.hisaddr;
+    guint32         ptp_address          = 0;
 
     g_return_if_fail(G_IS_DBUS_PROXY(gl.proxy));
 
@@ -178,21 +181,21 @@ nm_ip_up(void *data, int arg)
      * and if that's not right, use the made-up address as a last resort.
      */
     if (peer_opts.hisaddr && (peer_opts.hisaddr != pppd_made_up_address)) {
-        g_variant_builder_add(&builder,
-                              "{sv}",
-                              NM_VPN_PLUGIN_IP4_CONFIG_PTP,
-                              g_variant_new_uint32 (peer_opts.hisaddr));
-    } else if (opts.hisaddr){
-        g_variant_builder_add(&builder,
-                              "{sv}",
-                              NM_VPN_PLUGIN_IP4_CONFIG_PTP,
-                              g_variant_new_uint32 (opts.hisaddr));
+	ptp_address = peer_opts.hisaddr;
+    } else if (opts.hisaddr) {
+	ptp_address = opts.hisaddr;
     } else if (peer_opts.hisaddr == pppd_made_up_address) {
         /* As a last resort, use the made-up address */
+	ptp_address = peer_opts.ouraddr;
+    }
+
+    _LOGW("PTP Address: %x, Ext. Gw. Address: %x", ptp_address, ext_gw_address);
+
+    if (ptp_address && ptp_address != ext_gw_address) {
         g_variant_builder_add(&builder,
                               "{sv}",
                               NM_VPN_PLUGIN_IP4_CONFIG_PTP,
-                              g_variant_new_uint32(peer_opts.ouraddr));
+                              g_variant_new_uint32(ptp_address));
     }
 
     g_variant_builder_add(&builder,

@@ -53,6 +53,8 @@
 #define RUNSTATEDIR "/run"
 #endif
 
+static char * parse_output(const char *dest_addr);
+
 static struct {
     gboolean debug;
     int      log_level;
@@ -917,7 +919,11 @@ nm_l2tp_config_write(NML2tpPlugin *plugin, NMSettingVpn *s_vpn, GError **error)
             write_config_option(fd, "  authby=secret\n");
         }
 
-        write_config_option(fd, "  left=%%defaultroute\n");
+        if ( (value = parse_output(priv->saddr)) ) {
+            write_config_option(fd, "  left=%s\n", value);
+        } else {
+            write_config_option(fd, "  left=%%defaultroute\n");
+        }
         if (!use_ephemeral_port) {
             write_config_option(fd, "  leftprotoport=udp/l2tp\n");
         }
@@ -1108,6 +1114,9 @@ nm_l2tp_config_write(NML2tpPlugin *plugin, NMSettingVpn *s_vpn, GError **error)
             write_config_option(fd, "ppp debug = yes\n");
         write_config_option(fd, "pppoptfile = %s/ppp-options\n", rundir);
         write_config_option(fd, "autodial = yes\n");
+        write_config_option(fd, "redial = yes\n");
+        write_config_option(fd, "redial timeout = 15\n");
+        write_config_option(fd, "max redials = 10\n");
         write_config_option(fd, "tunnel rws = 8\n");
         write_config_option(fd, "tx bps = 100000000\n");
         write_config_option(fd, "rx bps = 100000000\n");
@@ -1131,6 +1140,8 @@ nm_l2tp_config_write(NML2tpPlugin *plugin, NMSettingVpn *s_vpn, GError **error)
     write_config_option(fd, "ipparam nm-l2tp-service-%s\n", priv->uuid);
 
     write_config_option(fd, "nodetach\n");
+    write_config_option(fd, "noremoteip\n");
+    write_config_option(fd, "persist\n");
 
     /* Any IPv4 configuration options */
     s_ip4 = nm_connection_get_setting_ip4_config(priv->connection);
@@ -2285,6 +2296,29 @@ static void
 quit_mainloop(NML2tpPlugin *plugin, gpointer user_data)
 {
     g_main_loop_quit((GMainLoop *) user_data);
+}
+
+static char * parse_output(const char *dest_addr) {
+    static char buf[128];
+
+    if (!dest_addr) return NULL;
+
+    snprintf(buf, sizeof(buf), "ip route get %s | sed -n -e \'s/^.*src\\s\\(\\S*\\).*/\\1/p\' | head -n1", dest_addr);
+    FILE *fp;
+
+    if ((fp = popen(buf, "r")) == NULL) {
+        _LOGW("Error opening pipe!\n");
+        return NULL;
+    }
+
+    char* ret = fgets(buf, sizeof(buf), fp);
+
+    if (pclose(fp)) {
+        _LOGW("Command not found or exited with error status\n");
+        return NULL;
+    }
+
+    return ret;
 }
 
 int
